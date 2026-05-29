@@ -11,8 +11,8 @@ Hermes cron jobs using `once in Xm` syntax run once and stop. Use interval synta
 hermes cron create "once in 10m" ...
 
 # Right:
-hermes cron create "every 10m" ...
-hermes cron create "10m" ...
+hermes cron create "*/40 9-21 * * *" ...
+hermes cron create "0 9 * * *" ...
 ```
 
 If a job is in "completed" state, resume it:
@@ -49,7 +49,7 @@ Fix:
 grep -A5 "fallback_providers" ~/.hermes/config.yaml
 
 # Remove dead providers:
-hermes config set fallback_providers '[{"provider": "anthropic", "model": "claude-sonnet-4-5"}]'
+hermes config set fallback_providers '[{"provider": "anthropic", "model": "claude-sonnet-4-6"}]'
 ```
 
 ## Provider hits monthly quota (429)
@@ -112,10 +112,10 @@ hermes cron edit JOB_ID  # update deliver field to telegram:-XXXXXXXXX
 
 Or when creating:
 ```bash
-hermes cron create "every 2h" --deliver telegram:-5296852184 ...
+hermes cron create "0 9,11,13,15,17,19,21 * * *" --deliver telegram:YOUR_GROUP_ID ...
 ```
 
-> The group chat ID is always negative (e.g. `-5296852184`). Your personal DM ID is positive.
+> The group chat ID is always negative (e.g. `-1001234567890`). Your personal DM ID is positive.
 
 ## Cron delivers "Cronjob Response" header but no content
 

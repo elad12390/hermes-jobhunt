@@ -2,12 +2,12 @@
 # Copy to ~/.hermes/config.yaml and fill in your values
 
 model:
-  default: claude-sonnet-4-5       # or deepseek-v4-pro, gpt-4o, etc.
+  default: claude-sonnet-4-6       # or deepseek-v4-pro, gpt-4o, etc.
   provider: anthropic               # anthropic, openrouter, ollama, etc.
 
 fallback_providers:
   - provider: openrouter
-    model: anthropic/claude-sonnet-4-5
+    model: anthropic/claude-sonnet-4-6
 
 agent:
   max_turns: 90

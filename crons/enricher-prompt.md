@@ -1,9 +1,17 @@
 # Enricher cron prompt
-# Used by: hermes cron create "every 10m" --prompt "$(cat crons/enricher-prompt.md)"
+# Used by: hermes cron create "*/40 9-21 * * *" --prompt "$(cat crons/enricher-prompt.md)"
+# Schedule note: runs every 40 min during waking hours only (9am-9pm) so it
+# never messages you overnight. Adjust the hours to your timezone/preference.
 
-Enrich LinkedIn jobs in YOUR_VAULT_PATH/linkedin-jobs/.
+Enrich LinkedIn jobs in YOUR_VAULT_PATH/linkedin-jobs/. Use the obsidian skill conventions.
 
-STEP 1 - FIND PENDING: List all .md files. A job is PENDING if it has curator_status:"passed" but NO enricher_status field. You MUST enrich every pending job before doing anything else.
+STEP 1 - FIND PENDING EFFICIENTLY (do NOT read every file):
+Run a single grep to find candidates cheaply, e.g.:
+  grep -rL 'enricher_status:' YOUR_VAULT_PATH/linkedin-jobs/ --include='*.md'
+then of those, keep only files that contain curator_status: "passed". A job is
+PENDING if it has curator_status:"passed" AND no enricher_status field. If there
+are zero pending jobs, STOP immediately and respond "No new jobs to enrich." -
+do not read or process anything else. This keeps token use minimal on idle runs.
 
 STEP 2 - ENRICH EACH PENDING JOB (one at a time):
   a. read_file the job

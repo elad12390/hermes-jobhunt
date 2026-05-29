@@ -50,12 +50,12 @@ If your primary provider hits a rate limit, Hermes falls back automatically. Edi
 
 ```yaml
 model:
-  default: claude-sonnet-4-5
+  default: claude-sonnet-4-6
   provider: anthropic
 
 fallback_providers:
   - provider: openrouter
-    model: anthropic/claude-sonnet-4-5
+    model: anthropic/claude-sonnet-4-6
 ```
 
 > **Important for cron jobs:** Pin important crons to a reliable provider (e.g. Anthropic directly) to avoid mid-run streaming failures. See the troubleshooting doc.

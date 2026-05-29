@@ -3,15 +3,15 @@
 The job pipeline has 3 stages, each running on its own schedule:
 
 ```
-LinkedIn ──→ Scraper (every 2h) ──→ Obsidian vault
-                                          │
-                                     Curator (every 90m)
+LinkedIn --> Scraper (every 2h, daytime) --> Obsidian vault
+                                          |
+                                     Curator (daytime)
                                      filters by role/stack
-                                          │
-                                     Enricher (every 10m)
+                                          |
+                                     Enricher (every 40m, daytime)
                                      researches companies
-                                          │
-                              "Hey! N jobs match" → Telegram group
+                                          |
+                              "Hey! N jobs match" --> Telegram group
 ```
 
 ## Stage 1: Scraper (no-LLM)
@@ -68,9 +68,9 @@ LinkedIn scan (2026-01-01 14:25)
   With details: 12
 ```
 
-**Create the cron:**
+**Create the cron** (runs every 2h during waking hours only - no overnight pings):
 ```bash
-hermes cron create "every 2h" \
+hermes cron create "0 9,11,13,15,17,19,21 * * *" \
   --name "LinkedIn Job Scraper" \
   --script linkedin-scraper.py \
   --no-agent \
@@ -78,6 +78,14 @@ hermes cron create "every 2h" \
 ```
 
 > `--no-agent` means Hermes runs the script directly and delivers stdout as the message. No LLM involved.
+
+> **Quiet hours:** the schedule above only fires 9am-9pm. Tune the hours
+> (`9,11,13,...`) to your timezone and waking hours.
+
+> **Timeout safety:** Hermes hard-kills cron scripts at 120s. The script
+> enforces a 95s wall-clock budget (`LINKEDIN_BUDGET_SECONDS`) and defers any
+> remaining detail-fetches to the next run instead of being killed mid-write.
+> Deferred jobs are picked up and fully enriched on the following run.
 
 ---
 
@@ -100,11 +108,11 @@ Save this as "Job curator preferences" in memory.
 
 See `templates/memory-preferences.md` for a fuller template.
 
-**Create the cron:**
+**Create the cron** (daytime hours, shortly after each scrape):
 ```bash
-hermes cron create "every 90m" \
+hermes cron create "0 9,10,12,13,15,16,18,19,21 * * *" \
   --name "LinkedIn Job Curator" \
-  --model claude-sonnet-4-5 \
+  --model claude-sonnet-4-6 \
   --provider anthropic \
   --deliver telegram:YOUR_JOBS_GROUP_ID \
   --skills obsidian \
@@ -140,18 +148,18 @@ Hey! 3 companies match your filters:
 
 It also marks jobs with `sent_to_user: true` so it won't repeat them.
 
-**Create the cron:**
+**Create the cron** (every 40 min during waking hours):
 ```bash
-hermes cron create "every 10m" \
+hermes cron create "*/40 9-21 * * *" \
   --name "Job Enricher" \
-  --model claude-sonnet-4-5 \
+  --model claude-sonnet-4-6 \
   --provider anthropic \
   --deliver telegram:YOUR_JOBS_GROUP_ID \
-  --skills linkedin-scraper \
+  --skills obsidian \
   --prompt "$(cat crons/enricher-prompt.md)"
 ```
 
-> The enricher runs every 10 minutes but is smart about it: if nothing changed (no new passed jobs, nothing unsent) it returns "No new jobs to enrich." silently - so you only get messages when there's something relevant.
+> The enricher runs every 40 minutes during the day but is smart about it: a single cheap `grep` checks for pending jobs first, and if nothing changed (no new passed jobs, nothing unsent) it returns "No new jobs to enrich." silently - so you only get messages when there's something relevant, and idle runs cost almost no tokens.
 
 ---
 

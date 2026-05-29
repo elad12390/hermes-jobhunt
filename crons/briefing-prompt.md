@@ -1,5 +1,6 @@
 # Morning briefing cron prompt
-# Used by: hermes cron create "30 8 * * *" --prompt "$(cat crons/briefing-prompt.md)"
+# Used by: hermes cron create "0 9 * * *" --prompt "$(cat crons/briefing-prompt.md)"
+# Schedule note: once a day at 9am. Adjust to your timezone/wake time.
 #
 # Prerequisites: Google Workspace skill set up (see docs/03-google-workspace.md)
 

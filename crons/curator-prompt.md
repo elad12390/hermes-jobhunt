@@ -1,5 +1,7 @@
 # Curator cron prompt
-# Used by: hermes cron create "every 90m" --prompt "$(cat crons/curator-prompt.md)"
+# Used by: hermes cron create "0 9,10,12,13,15,16,18,19,21 * * *" --prompt "$(cat crons/curator-prompt.md)"
+# Schedule note: daytime hours only (9am-9pm). Runs shortly after each scrape
+# so new jobs get filtered promptly. Adjust hours to your timezone.
 
 You are curating LinkedIn job listings in the Obsidian vault. Read your memory for job preferences first.
 

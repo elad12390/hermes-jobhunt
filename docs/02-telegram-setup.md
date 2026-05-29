@@ -48,7 +48,7 @@ You want job alerts in a separate group (not your DMs) so they don't clutter you
    ```
    hermes send_message action=list
    ```
-   The group should now appear in the list with its chat ID (a negative number like `-5296852184`)
+   The group should now appear in the list with its chat ID (a negative number like `-1001234567890`)
 
 Save the group chat ID - you'll use it when configuring cron job delivery.
 

@@ -223,6 +223,14 @@ status: "active"
 
 
 # ── Main ───────────────────────────────────────────────────────
+# Cron runs this with a hard timeout (default 120s in Hermes). Detail-page
+# fetches are the slow part, so we enforce a wall-clock BUDGET below the cron
+# limit and defer any remaining jobs to the next run instead of being killed
+# mid-write. Deferred jobs are NOT written detail-less, so they get picked up
+# (and fully enriched) on the following run.
+BUDGET_SECONDS = int(os.environ.get("LINKEDIN_BUDGET_SECONDS", "95"))
+
+
 def main():
     if not os.environ.get("OBSIDIAN_VAULT_PATH"):
         sys.stderr.write(
@@ -237,6 +245,7 @@ def main():
 
     all_jobs = {}
     errors = []
+    start = time.monotonic()
 
     # Phase 1: Search results
     for search_title, url in SEARCHES:
@@ -256,7 +265,7 @@ def main():
             sys.stderr.write(msg + "\n")
             errors.append(msg)
 
-    # Phase 2: Fetch details for NEW jobs only (skip rejected)
+    # Phase 2: Fetch details for NEW jobs only (skip rejected), under budget
     new_jobs = {
         jid: j
         for jid, j in all_jobs.items()
@@ -265,16 +274,30 @@ def main():
     sys.stderr.write(f"\n  Fetching details for {len(new_jobs)} new job(s)...\n")
 
     details_cache = {}
+    skipped_budget = 0
     for jid, job in new_jobs.items():
+        if time.monotonic() - start > BUDGET_SECONDS:
+            skipped_budget = len(new_jobs) - len(details_cache)
+            sys.stderr.write(
+                f"\n  Budget reached, deferring {skipped_budget} job(s) to next run\n"
+            )
+            break
         details = fetch_job_details(job)
         details_cache[jid] = details
         desc_preview = details.get("description", "")[:80]
         sys.stderr.write(f"    {job['title'][:50]}... -> {desc_preview}...\n")
-        time.sleep(3)  # Rate limit
+        time.sleep(1)  # Rate limit
 
-    # Phase 3: Write to vault
+    # Phase 3: Write to vault. Only write notes for jobs we processed this run:
+    # existing notes (updates) and new jobs we fetched details for. New jobs
+    # deferred by the budget are skipped so they get fetched next run instead
+    # of being written detail-less (which would make job_note_exists skip them
+    # forever).
     created = updated = 0
     for jid, job in all_jobs.items():
+        is_new = jid in new_jobs
+        if is_new and jid not in details_cache:
+            continue  # deferred to next run
         details = details_cache.get(jid, {})
         result = write_job_note(job, job["_search"], details)
         if result == "created":
@@ -290,6 +313,8 @@ def main():
     )
     if errors:
         summary += f"  Errors: {len(errors)}\n"
+    if skipped_budget:
+        summary += f"  Deferred (budget): {skipped_budget}\n"
     print(summary)
 
 
