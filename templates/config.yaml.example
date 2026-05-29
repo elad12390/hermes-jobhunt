@@ -1,0 +1,38 @@
+# Hermes config.yaml example
+# Copy to ~/.hermes/config.yaml and fill in your values
+
+model:
+  default: claude-sonnet-4-5       # or deepseek-v4-pro, gpt-4o, etc.
+  provider: anthropic               # anthropic, openrouter, ollama, etc.
+
+fallback_providers:
+  - provider: openrouter
+    model: anthropic/claude-sonnet-4-5
+
+agent:
+  max_turns: 90
+
+terminal:
+  backend: local
+  timeout: 180
+
+timezone: YOUR_TIMEZONE  # e.g. Asia/Jerusalem, America/New_York, Europe/London
+
+memory:
+  memory_enabled: true
+  user_profile_enabled: true
+
+telegram:
+  reactions: false
+
+# Optional: MCP servers
+# mcp_servers:
+#   web-research-assistant:
+#     command: uvx
+#     args:
+#       - web-research-assistant
+#     env:
+#       SEARXNG_BASE_URL: http://localhost:2288/search
+#       NO_PROXY: localhost,127.0.0.1,::1
+#       # HTTP_PROXY: http://USER:PASS@HOST:PORT   # only if using proxy
+#       # HTTPS_PROXY: http://USER:PASS@HOST:PORT
