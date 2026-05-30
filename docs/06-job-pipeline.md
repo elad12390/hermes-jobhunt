@@ -1,22 +1,61 @@
 # 6. Job Pipeline
 
-The job pipeline has 3 stages, each running on its own schedule:
+The job pipeline has 3 stages, each running on its own schedule. All three run under the **jobs profile** (separate bot, separate gateway, separate memory).
 
 ```
-LinkedIn --> Scraper (every 2h, daytime) --> Obsidian vault
-                                          |
-                                     Curator (daytime)
-                                     filters by role/stack
-                                          |
-                                     Enricher (every 40m, daytime)
-                                     researches companies
-                                          |
-                              "Hey! N jobs match" --> Telegram group
+┌─────────────────────────────────────────────────────────┐
+│ Jobs Profile (Merc bot)                                 │
+│                                                         │
+│ LinkedIn → Scraper (no-agent, 2h) → Obsidian vault      │
+│                                    ↓                    │
+│                               Curator (LLM, ~hourly)    │
+│                               filters by preferences    │
+│                                    ↓                    │
+│                               Enricher (LLM, every 40m) │
+│                               researches companies      │
+│                                    ↓                    │
+│                        "Hey! N jobs match" → Telegram   │
+│                                                         │
+│ Default Profile (Eladiut bot)                           │
+│ └── Morning Briefing only                               │
+└─────────────────────────────────────────────────────────┘
 ```
+
+**Why two profiles?** The jobs profile has its own memory (job preferences, company lists), its own config (cheap/free provider for scraping, reliable fallbacks for LLM work), and its own Telegram bot that only delivers pipeline output. The default profile handles personal tasks without the pipeline cluttering its context or memory.
+
+## Create the jobs profile
+
+```bash
+hermes profile create jobs --clone-from default
+# Edit ~/.hermes/profiles/jobs/.env and set TELEGRAM_BOT_TOKEN to your jobs bot
+# Edit ~/.hermes/profiles/jobs/config.yaml and set model/fallback chain
+```
+
+All `hermes cron create` commands below use `--profile jobs`.
+
+## Profile provider chain
+
+Edit `~/.hermes/profiles/jobs/config.yaml`:
+```yaml
+model:
+  default: deepseek-v4-pro:cloud
+  provider: ollama-cloud
+
+fallback_providers:
+  - provider: anthropic
+    model: claude-sonnet-4-6
+  - provider: opencode-go
+    model: deepseek-v4-pro
+```
+
+The cron jobs inherit this chain — no per-job model pinning needed:
+1. **Primary:** ollama-cloud (free) — tried first
+2. **Fallback 1:** anthropic (reliable) — kicks in if ollama drops
+3. **Fallback 2:** opencode-go (paid plan) — last resort
 
 ## Stage 1: Scraper (no-LLM)
 
-The scraper is a Python script that runs without any LLM - pure browser automation + file writes. This makes it extremely reliable (no API costs, no streaming drops, no token limits).
+The scraper is a Python script that runs without any LLM — pure browser automation + file writes. This makes it extremely reliable (no API costs, no streaming drops, no token limits).
 
 **What it does:**
 1. Uses `agent-browser` (headless Chromium) to open LinkedIn job search URLs
@@ -45,9 +84,6 @@ MAX_HOURS = 2                                # only show jobs posted in last N h
 SEARCHES = [
     ("Senior Backend Engineer", "https://www.linkedin.com/jobs/search/?keywords=Senior%20Backend%20Engineer&location=YOUR_LOCATION&geoId=YOUR_GEO_ID&f_TPR=r86400"),
     # Add your own searches here
-    # Find your location's geoId by searching on LinkedIn and checking the URL
-    # (the production scripts/linkedin-scraper.py reads these from env vars:
-    #  LINKEDIN_LOCATION, LINKEDIN_GEO_ID, LINKEDIN_SEARCHES)
 ]
 
 PROXY_URL = "http://USER:PASS@HOST:PORT"     # leave empty string "" if no proxy
@@ -58,19 +94,9 @@ PROXY_URL = "http://USER:PASS@HOST:PORT"     # leave empty string "" if no proxy
 python ~/.hermes/scripts/linkedin-scraper.py
 ```
 
-You should see output like:
-```
-<Your Search Title 1>: 7 jobs (2h filter)
-<Your Search Title 2>: 9 jobs (2h filter)
-...
-LinkedIn scan (2026-01-01 14:25)
-  Created: 12 | Updated: 0
-  With details: 12
-```
-
-**Create the cron** (runs every 2h during waking hours only - no overnight pings):
+**Create the cron** (runs 7x/day during waking hours, no overnight pings):
 ```bash
-hermes cron create "0 9,11,13,15,17,19,21 * * *" \
+hermes --profile jobs cron create "0 9,11,13,15,17,19,21 * * *" \
   --name "LinkedIn Job Scraper" \
   --script linkedin-scraper.py \
   --no-agent \
@@ -79,21 +105,17 @@ hermes cron create "0 9,11,13,15,17,19,21 * * *" \
 
 > `--no-agent` means Hermes runs the script directly and delivers stdout as the message. No LLM involved.
 
-> **Quiet hours:** the schedule above only fires 9am-9pm. Tune the hours
-> (`9,11,13,...`) to your timezone and waking hours.
+> **Quiet hours:** the schedule above only fires 9am-9pm. Tune the hours to your timezone.
 
-> **Timeout safety:** Hermes hard-kills cron scripts at 120s. The script
-> enforces a 95s wall-clock budget (`LINKEDIN_BUDGET_SECONDS`) and defers any
-> remaining detail-fetches to the next run instead of being killed mid-write.
-> Deferred jobs are picked up and fully enriched on the following run.
+> **Timeout safety:** Hermes hard-kills cron scripts at 120s. The script enforces a 95s wall-clock budget and defers any remaining detail-fetches to the next run instead of being killed mid-write.
 
 ---
 
 ## Stage 2: Curator (LLM)
 
-The curator reads new job notes and filters them based on your profile. It deletes notes that don't match and marks good ones as `curator_status: "passed"`.
+The curator reads new job notes and filters them based on your profile. It marks good ones as `curator_status: "interested"` and rejects mismatches.
 
-**It reads your Hermes memory** to understand your preferences - you don't hardcode filters in the cron prompt. To set your preferences, tell Hermes something like:
+**It reads your Hermes memory** to understand your preferences — you don't hardcode filters in the cron prompt. To set your preferences, tell Hermes something like:
 
 ```
 Remember my job search preferences:
@@ -102,7 +124,7 @@ Remember my job search preferences:
 - WANT: [the roles/industries/company types you're targeting]
 - AVOID: [roles/stacks/company types to filter out]
 - Location: [your location], [remote/hybrid/onsite preference]
-- Seniority: [Junior / Mid / Senior / Staff / Lead / IC vs management]
+- Seniority: [Junior / Mid / Senior / Staff / Lead]
 Save this as "Job curator preferences" in memory.
 ```
 
@@ -110,14 +132,14 @@ See `templates/memory-preferences.md` for a fuller template.
 
 **Create the cron** (daytime hours, shortly after each scrape):
 ```bash
-hermes cron create "0 9,10,12,13,15,16,18,19,21 * * *" \
+hermes --profile jobs cron create "0 9,10,12,13,15,16,18,19,21 * * *" \
   --name "LinkedIn Job Curator" \
-  --model claude-sonnet-4-6 \
-  --provider anthropic \
   --deliver telegram:YOUR_JOBS_GROUP_ID \
   --skills obsidian \
   --prompt "$(cat crons/curator-prompt.md)"
 ```
+
+> No `--model` or `--provider` flags — the job inherits the profile's fallback chain.
 
 See `crons/curator-prompt.md` for the full prompt.
 
@@ -133,50 +155,55 @@ The enricher processes jobs that passed curation, researches the company, and se
 - Recent layoffs or financial trouble
 - Product vs. project/outsourcing company
 - Careers page URL
-- AI disruption risk
+- Job details: seniority, employment type, job function, industry
 
 **It sends you a message like:**
 ```
 Hey! 3 companies match your filters:
 
-• Acme Corp - Senior Backend Engineer
-  Senior · Full-time · Software
-  95 employees · Series A
-  Stability: No recent layoffs. Growing fast.
-  -> https://example.com/careers/
+⭐ Pick: CompanyName - Senior Backend Engineer
+  Senior · Full-time · Cybersecurity
+  120 employees · Series B
+  Stack: Python, Go, AWS
+  → https://company.com/careers/
 ```
 
 It also marks jobs with `sent_to_user: true` so it won't repeat them.
 
 **Create the cron** (every 40 min during waking hours):
 ```bash
-hermes cron create "*/40 9-21 * * *" \
+hermes --profile jobs cron create "*/40 9-21 * * *" \
   --name "Job Enricher" \
-  --model claude-sonnet-4-6 \
-  --provider anthropic \
   --deliver telegram:YOUR_JOBS_GROUP_ID \
   --skills obsidian \
   --prompt "$(cat crons/enricher-prompt.md)"
 ```
 
-> The enricher runs every 40 minutes during the day but is smart about it: a single cheap `grep` checks for pending jobs first, and if nothing changed (no new passed jobs, nothing unsent) it returns "No new jobs to enrich." silently - so you only get messages when there's something relevant, and idle runs cost almost no tokens.
+> The enricher runs every 40 minutes but is token-efficient: a single `grep` checks for pending jobs first, and if none exist it returns immediately with minimal cost. You only get messages when there's something relevant.
+
+---
+
+## View all cron jobs
+
+```bash
+hermes cron list                    # default profile (Morning Briefing only)
+hermes --profile jobs cron list     # jobs profile (pipeline)
+```
 
 ---
 
 ## LinkedIn search URL builder
 
-To build your own search URLs:
-
 1. Go to https://www.linkedin.com/jobs/search/
 2. Enter your keywords + location + filter "Past 24 hours"
 3. Copy the URL from your browser
-4. Copy the `geoId=` value from that URL - it is your location's numeric LinkedIn ID
+4. Copy the `geoId=` value — your location's numeric LinkedIn ID
 
 Key URL parameters:
-- `keywords=` - job title to search
-- `location=` - location name (display only)
-- `geoId=` - numeric LinkedIn location ID
-- `f_TPR=r86400` - past 24 hours filter
+- `keywords=` — job title to search
+- `location=` — location name (display only)
+- `geoId=` — numeric LinkedIn location ID
+- `f_TPR=r86400` — past 24 hours filter
 
 ---
 

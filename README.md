@@ -11,24 +11,30 @@ This repo is a **ready-to-deploy setup guide** for turning Hermes into your pers
 - **Sends you only the good matches** to a dedicated Telegram group
 - Stores everything in **Obsidian** so you can query and review it
 
-The whole system is autonomous once configured. You tell it once what you want - it hunts for you.
+The whole system is autonomous once configured. You tell it once what you want — it hunts for you.
 
 ---
 
-## What you get
+## Architecture
 
 ```
-Gmail / Calendar ──→ Morning briefing (8:30am daily, Telegram)
-LinkedIn ──────────→ Scraper (every 2h, no-LLM Python script)
-                         │
-                    Curator (every 90min, LLM - filters by your profile)
-                         │
-                    Enricher (every 10min, LLM - researches companies)
-                         │
-                    "Hey! 3 companies match your filters" → Telegram group
+┌───────────────────────────────────────────────────────┐
+│ Default Profile (Eladiut bot)                         │
+│ └── Morning Briefing cron → personal Telegram DM      │
+├───────────────────────────────────────────────────────┤
+│ Jobs Profile (Merc bot) — separate Hermes profile     │
+│ ┌── Scraper (no-agent, 7x/day)                        │
+│ │     LinkedIn → Obsidian vault                       │
+│ ├── Curator (LLM, ~hourly, daytime)                   │
+│ │     Filters by your memory preferences              │
+│ ├── Enricher (LLM, every 40m, daytime)                │
+│ │     Researches companies, extracts details          │
+│ │     Sends "Hey! N jobs match" summary               │
+│ └── All deliver → Hermes-Jobs Telegram group          │
+└───────────────────────────────────────────────────────┘
 ```
 
-All jobs land in **Obsidian** as structured markdown notes with frontmatter you can query with Dataview.
+**Why two profiles?** Memory, config, and context are fully isolated. Merc owns the pipeline — Eladiut handles personal tasks. If one goes down, the other keeps running.
 
 ---
 
@@ -39,7 +45,7 @@ hermes-jobhunt/
 ├── README.md                    ← you are here
 ├── docs/
 │   ├── 01-hermes-setup.md       ← install Hermes + pick a model
-│   ├── 02-telegram-setup.md     ← Telegram bot + group
+│   ├── 02-telegram-setup.md     ← Telegram bots + group + profiles
 │   ├── 03-google-workspace.md   ← Gmail + Calendar OAuth
 │   ├── 04-obsidian-setup.md     ← Obsidian as the job database
 │   ├── 05-proxy-setup.md        ← residential proxy for LinkedIn
@@ -66,8 +72,8 @@ hermes-jobhunt/
 | What | Why | Cost |
 |------|-----|------|
 | [Hermes Agent](https://hermes-agent.nousresearch.com) | The AI agent runtime | Free (OSS) |
-| LLM provider (Anthropic, OpenRouter, etc.) | Powers the AI | Varies |
-| Telegram account + bot token | Delivers alerts | Free |
+| LLM provider (Ollama Cloud, Anthropic, etc.) | Powers the AI | Varies (free tiers available) |
+| Telegram account + 2 bot tokens | Delivers alerts (separate assistant + pipeline bots) | Free |
 | Google Cloud project (OAuth) | Gmail + Calendar access | Free |
 | Obsidian | Job database + notes | Free |
 | Residential proxy (optional) | LinkedIn bot detection bypass | ~$5-10/mo |
@@ -83,7 +89,7 @@ Please set up my job hunting assistant. Follow the guide at:
 https://github.com/elad12390/hermes-jobhunt
 
 I will provide you with:
-- My Telegram bot token
+- My Telegram bot tokens (2 bots: personal assistant + pipeline)
 - My Google OAuth credentials
 - My residential proxy URL (optional)
 - My Obsidian vault path

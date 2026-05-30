@@ -1,55 +1,55 @@
 # Enricher cron prompt
-# Used by: hermes cron create "*/40 9-21 * * *" --prompt "$(cat crons/enricher-prompt.md)"
-# Schedule note: runs every 40 min during waking hours only (9am-9pm) so it
-# never messages you overnight. Adjust the hours to your timezone/preference.
+# Runs under: hermes --profile jobs cron create "*/40 9-21 * * *" --prompt "$(cat crons/enricher-prompt.md)"
+# Schedule: every 40 min during waking hours (9am-9pm). Low-traffic overnight.
 
-Enrich LinkedIn jobs in YOUR_VAULT_PATH/linkedin-jobs/. Use the obsidian skill conventions.
+Enrich LinkedIn jobs in your vault's linkedin-jobs/ directory. Use the obsidian skill conventions.
 
 STEP 1 - FIND PENDING EFFICIENTLY (do NOT read every file):
-Run a single grep to find candidates cheaply, e.g.:
-  grep -rL 'enricher_status:' YOUR_VAULT_PATH/linkedin-jobs/ --include='*.md'
-then of those, keep only files that contain curator_status: "passed". A job is
-PENDING if it has curator_status:"passed" AND no enricher_status field. If there
+Run a single grep to find candidates cheaply:
+  grep -rL 'enricher_status:' linkedin-jobs/ --include='*.md'
+then of those, keep only files that contain curator_status: "interested". A job is
+PENDING if it has curator_status:"interested" AND no enricher_status field. If there
 are zero pending jobs, STOP immediately and respond "No new jobs to enrich." -
 do not read or process anything else. This keeps token use minimal on idle runs.
 
-STEP 2 - ENRICH EACH PENDING JOB (one at a time):
-  a. read_file the job
-  b. Web search: "<company> employees", "<company> funding crunchbase", "<company> layoffs 2026", "<company> revenue profitable"
-  c. patch the frontmatter to add these lines (after the industry: line):
-     enricher_status: "passed"   (use "rejected" only for outsourcing/consulting/ghost/dying companies)
+STEP 2 - ENRICH EACH PENDING JOB (in parallel where possible):
+  a. Read all pending files at once (batch read_file calls)
+  b. Fire all web searches in parallel (not one-by-one):
+     - "<company> employees size"
+     - "<company> funding crunchbase"
+     - "<company> layoffs 2026"
+     - "<company> revenue growth"
+     - "<company> careers page"
+  c. Patch each file's frontmatter to add:
+     enricher_status: "passed"   (use "rejected" only for project/outsourcing/consulting/ghost/dying companies)
      enricher_note: "one sentence why"
      company_size: "X employees"
-     funding: "stage + amount or Public (NASDAQ: X)"
+     funding: "stage + amount or Public (TICKER)"
      company_type: "product"
      careers_page: "URL"
-     company_stability: "1-2 sentences: any layoffs? revenue? growth? will AI replace this company?"
-     seniority: (parse from description)
-     employment: (Full-time / Hybrid / Remote - parse from description)
-     job_function: (e.g. Software Engineering, AI/ML Engineering)
-     industry: (e.g. Cybersecurity, Fintech, AI Platform)
+     company_stability: "1-2 sentences: layoffs? revenue? growth? AI disruption risk?"
      sent_to_user: false
 
 REJECT (enricher_status: "rejected") only if:
   - Project/outsourcing/consulting shop ("we build solutions for clients")
-  - Ghost company (no website, no funding info, can't find anything)
-  - Company clearly dying or going to be replaced entirely by AI
+  - Ghost company (no website, no employees, can't find anything)
+  - Company clearly dying or will be replaced entirely by AI
 
-Everything else: PASS.
+Everything else: PASS. Company size and funding stage do NOT matter.
 
-STEP 3 - SUMMARIZE: After NO pending jobs remain, scan all files for enricher_status:"passed" AND sent_to_user:false.
+STEP 3 - SUMMARIZE: After ALL pending jobs are enriched, scan for enricher_status:"passed" AND sent_to_user:false.
 
-If that list is non-empty, make your FINAL RESPONSE exactly:
+If that list is non-empty, make your FINAL RESPONSE:
 
-Hey! [N] companies match your filters:
+Hey! [N] job listings match your filters:
 
-• [Company] - [Title]
+⭐ Top Pick: [Company] - [Title]
   [seniority] · [employment] · [industry]
   [company_size] · [funding]
-  Stability: [company_stability]
+  Stack: [from description]
   → [careers_page]
 
-(one block per passed job, ordered by relevance)
+(one block per passed job, grouped by category: ⭐ top pick, 🔐 cyber, 🧠 AI/ML)
 
 Then patch each of those jobs: set sent_to_user: true
 

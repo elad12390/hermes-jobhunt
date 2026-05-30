@@ -1,60 +1,75 @@
 # 2. Telegram Setup
 
-Telegram is how Hermes delivers everything to you - morning briefings, job matches, alerts. You need a bot and a group.
+Telegram is how Hermes delivers everything to you - morning briefings, job matches, alerts. The jobhunt setup uses two separate Telegram bots, each running on its own Hermes profile.
 
-## Create a Telegram bot
+## Architecture: two bots, two profiles
+
+```
+Eladiut (default profile)          Merc (jobs profile)
+├── Bot token: 8755794348          ├── Bot token: 8491442386
+├── Hermes profile: default        ├── Hermes profile: jobs
+├── Gateway: hermes-gateway        ├── Gateway: hermes-gateway-jobs
+├── Cron: Morning Briefing only    ├── Cron: Scraper, Curator, Enricher
+└── Personal assistant             └── Job pipeline only
+
+Both deliver to → Hermes-Jobs Telegram group
+```
+
+**Why separate?** Memory, config, session context, and model chains are fully independent. Merc owns the job pipeline; Eladiut handles personal tasks. If one goes down, the other keeps running.
+
+## Create your Telegram bots
+
+Do this twice - once for each bot:
 
 1. Open Telegram, search for **@BotFather**
 2. Send `/newbot`
-3. Pick a name (e.g. "My Hermes") and a username (e.g. `myhermes_bot`)
-4. BotFather gives you a **token** - looks like `123456789:AAExxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`
+3. Pick a name and username for each (e.g. "My Assistant" + "My Jobs")
+4. BotFather gives you a **token** for each - save them
 
-Save it, you'll need it in a minute.
-
-## Get your Telegram user ID
-
-1. Search for **@userinfobot** in Telegram
-2. Send it any message
-3. It replies with your user ID (a number like `86849198`)
-
-## Configure Hermes with Telegram
-
-Add to `~/.hermes/.env`:
-
-```
-TELEGRAM_BOT_TOKEN=YOUR_BOT_TOKEN_HERE   # from @BotFather
-TELEGRAM_ALLOWED_USERS=YOUR_USER_ID
-TELEGRAM_HOME_CHANNEL=YOUR_USER_ID
-```
-
-Then start the gateway:
-
-```bash
-hermes gateway install   # install as background service
-hermes gateway start
-hermes gateway status    # should show "active (running)"
-```
-
-Send your bot a message in Telegram - it should reply.
+> After creating both bots, set **Privacy Mode ON** for each via @BotFather → Bot Settings → Group Privacy → Turn on. This means bots only see @mentions and /commands in groups (not all chatter). Cron deliveries still work because they're send operations, not reads.
 
 ## Create a dedicated jobs group
 
-You want job alerts in a separate group (not your DMs) so they don't clutter your personal chat.
-
 1. Create a new Telegram group (e.g. "Hermes Jobs")
-2. Add your bot to the group as a member
-3. Send any message in the group (wakes the bot up)
-4. In your Hermes session, run:
-   ```
-   hermes send_message action=list
-   ```
-   The group should now appear in the list with its chat ID (a negative number like `-1001234567890`)
+2. Add BOTH bots to the group
+3. Send any message in the group
+4. In your Hermes session, run `/platforms` to find the group chat ID (a negative number like `-1001234567890`)
 
-Save the group chat ID - you'll use it when configuring cron job delivery.
+Save the group chat ID - all cron jobs deliver here.
+
+## Configure Hermes profiles
+
+**Default profile** (`~/.hermes/.env`):
+```
+TELEGRAM_BOT_TOKEN=your_default_bot_token_here
+```
+
+**Jobs profile** (`~/.hermes/profiles/jobs/.env`):
+```
+TELEGRAM_BOT_TOKEN=your_jobs_bot_token_here
+```
+
+## Start both gateways
+
+```bash
+# Default profile gateway
+hermes gateway install
+hermes gateway start
+
+# Jobs profile gateway
+hermes --profile jobs gateway install --force
+hermes --profile jobs gateway start
+```
+
+Verify both are running:
+```bash
+systemctl --user is-active hermes-gateway
+systemctl --user is-active hermes-gateway-jobs
+```
 
 ## Verify
 
-Send a test message to your bot in DMs - it should respond. Then send a message in the group mentioning the bot - it should respond there too.
+Send a message to each bot in DMs - both should respond. Then send a message in the group mentioning either bot - it should respond.
 
 ---
 
